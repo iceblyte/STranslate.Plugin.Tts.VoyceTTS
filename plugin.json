@@ -1,0 +1,10 @@
+{
+  "PluginID": "b8c37b6d-96a4-4b3b-a9bd-3a0b4d2c9f51",
+  "Name": "VoyceTTS",
+  "Description": "Free Edge-compatible online TTS with Windows SAPI offline fallback",
+  "Author": "iceblyte",
+  "Version": "1.0.0",
+  "Website": "https://github.com/iceblyte/STranslate.Plugin.Tts.VoyceTTS",
+  "ExecuteFileName": "STranslate.Plugin.Tts.VoyceTTS.dll",
+  "IconPath": "icon.png"
+}
