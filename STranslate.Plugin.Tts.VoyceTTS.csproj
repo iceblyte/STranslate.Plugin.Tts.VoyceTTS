@@ -30,6 +30,9 @@
     <None Include="icon.svg" />
     <Content Include="Languages\*.*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="VoyceTTS.Tests\**\*.cs" />
+  </ItemGroup>
   <Target Name="CopySystemSpeech" AfterTargets="Build" BeforeTargets="PackageAsSpkg">
     <Copy SourceFiles="$(PkgSystem_Speech)\runtimes\win\lib\net10.0\System.Speech.dll" DestinationFolder="$(OutputPath)" />
   </Target>

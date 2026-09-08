@@ -39,14 +39,13 @@ public sealed class Main : ITtsPlugin
 
     internal async Task PlayOnlineAsync(string text, CancellationToken cancellationToken)
     {
-        var baseUrl = _settings.BaseUrl.Trim().TrimEnd('/');
-        var url = baseUrl.EndsWith("/audio/speech", StringComparison.OrdinalIgnoreCase)
-            ? baseUrl
-            : baseUrl + "/api/v1/audio/speech";
-        var body = new { voice = _settings.Voice, input = text, speed = _settings.Speed, pitch = _settings.Pitch, stream = false };
-        var options = new Options { Timeout = TimeSpan.FromSeconds(Math.Clamp(_settings.TimeoutSeconds, 5, 300)) };
-        if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
-            options.Headers = new() { ["Authorization"] = "Bearer " + _settings.ApiKey };
+        var url = VoyceTtsProtocol.ResolveSpeechUrl(_settings.BaseUrl, _settings.EndpointPreset);
+        var body = VoyceTtsProtocol.CreateOnlineRequest(text, _settings);
+        var options = new Options
+        {
+            Timeout = TimeSpan.FromSeconds(Math.Clamp(_settings.TimeoutSeconds, 5, 300)),
+            Headers = VoyceTtsProtocol.CreateRequestHeaders(_settings)
+        };
         var bytes = await _context.HttpService.PostAsBytesAsync(url, body, options, cancellationToken);
         if (bytes.Length == 0) throw new InvalidOperationException("TTS 服务返回空音频");
         await _context.AudioPlayer.PlayAsync(new AudioData(bytes, AudioFormat.Mp3), cancellationToken);

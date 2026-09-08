@@ -38,7 +38,7 @@ VoyceTTS 是一个面向 STranslate 的 Windows TTS 插件。它提供 Edge-comp
 默认模式为 `Auto`：先请求在线服务，失败后自动改用 SAPI。用户也可以强制选择仅在线或仅离线。
 
 > [!warning]
-> 默认 Okraworks 地址属于第三方公共网关，可能出现限流、接口调整或停止服务。VoyceTTS 允许修改地址和公共访问参数，并提供离线回退，但不对第三方服务作可用性承诺。
+> 默认提供 `Wangwangit` 和 `Okraworks` 两个在线预设，分别对应 `https://tts.wangwangit.com/v1/audio/speech` 和 `https://tts.okraworks.cn/api/v1/audio/speech?api_key=okraworks`。VoyceTTS 允许修改地址并提供离线回退，但不对第三方服务作可用性承诺。
 
 ## 二、插件架构与数据流
 
@@ -124,19 +124,20 @@ Release 构建启用 STranslate SDK 提供的自动打包目标：
 开发前先直接请求服务，确认真实接口不是网页地址本身，而是：
 
 ```text
-POST https://tts.okraworks.cn/api/v1/audio/speech
+POST https://tts.wangwangit.com/v1/audio/speech
 Content-Type: application/json
-Authorization: Bearer <公共访问参数>
 ```
 
-请求体包含音色、文本、语速、音调和非流式开关：
+请求体包含音色、文本、语速、音量、音调、风格和非流式开关：
 
 ```json
 {
   "voice": "zh-CN-XiaoxiaoNeural",
   "input": "测试文本",
   "speed": 1.0,
+  "volume": 0,
   "pitch": 0,
+  "style": "general",
   "stream": false
 }
 ```
@@ -153,9 +154,6 @@ var options = new Options
     Timeout = TimeSpan.FromSeconds(Math.Clamp(_settings.TimeoutSeconds, 5, 300))
 };
 
-if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
-    options.Headers = new() { ["Authorization"] = "Bearer " + _settings.ApiKey };
-
 var bytes = await _context.HttpService.PostAsBytesAsync(
     url,
     body,
@@ -169,9 +167,10 @@ await _context.AudioPlayer.PlayAsync(
 
 这里有三个重要细节：
 
-1. API Key 为空时不发送 `Authorization`，以兼容真正无鉴权的自建服务。
-2. Base URL 既支持站点根地址，也支持用户直接填写完整的 `/audio/speech` 地址。
-3. 明确把返回数据标记为 `AudioFormat.Mp3`，不让宿主猜测格式。
+1. 在线预设切换会同时影响 URL 和鉴权头，Wangwangit 不发 `Authorization`，Okraworks 默认带 `okraworks`。
+2. Base URL 既支持站点根地址，也支持用户直接填写完整的 speech 地址；`/v1/audio/speech` 与 `/api/v1/audio/speech` 都继续兼容。
+3. `volume` 直接按 raw 数值传递，不再转换成整数百分比。
+4. 明确把返回数据标记为 `AudioFormat.Mp3`，不让宿主猜测格式。
 
 ## 六、实现 Windows SAPI 离线合成
 
@@ -260,8 +259,8 @@ await PlaySapiAsync(text, cancellationToken);
 设置页覆盖以下参数：
 
 - `Auto`、`Online`、`Offline` 三种模式。
-- 在线地址、遮罩显示的访问参数、在线音色。
-- 在线语速、音调和超时。
+- 在线预设、在线地址、在线音色、在线风格。
+- 在线语速、音量、音调和超时。
 - 是否允许在线失败后回退。
 - SAPI 语音、语速和音量。
 - 刷新系统语音、在线试听和离线试听。
@@ -375,7 +374,7 @@ Languages/zh-cn.json
 | 检查项 | 实际结果 |
 | --- | --- |
 | Release 编译 | 通过，0 警告、0 错误 |
-| Okraworks 请求 | HTTP 200，返回 `audio/mpeg` |
+| 网页端请求 | HTTP 200，返回 `audio/mpeg` |
 | 在线音频内容 | 测试响应为 16,416 字节 |
 | SAPI 枚举 | 检测到 5 个可用语音 |
 | `.spkg` 根结构 | `plugin.json`、入口 DLL、图标和语言文件齐全 |
@@ -454,10 +453,10 @@ Windows Runner 安装 .NET 10，执行 Release 构建，再把生成的 `.spkg` 
 
 只请求在线服务。可以配置：
 
-- 服务根地址或完整 `/audio/speech` 地址。
-- 服务所需的访问参数；无鉴权服务可以留空。
+  - 服务根地址或完整 `/v1/audio/speech` 地址，旧的 `/api/v1/audio/speech` 也可直接填写。
+  - Wangwangit 不需要 `Authorization`；Okraworks 默认使用 `okraworks`。
 - Edge 音色，例如 `zh-CN-XiaoxiaoNeural`。
-- 语速、音调和超时时间。
+- 语速、音量、风格、音调和超时时间。
 
 修改后点击“在线试听”。听到“VoyceTTS 在线语音测试”表示在线链路可用。
 
@@ -475,7 +474,7 @@ Windows Runner 安装 .NET 10，执行 Release 构建，再把生成的 `.spkg` 
 
 ### 在线测试失败，但离线可以播放
 
-这通常表示第三方网关不可达、限流或参数发生变化。可以先切换为 `Offline`，再检查在线地址、访问参数和网络代理。
+这通常表示第三方网关不可达、限流或参数发生变化。可以先切换预设或改成手填 URL，再检查在线地址和网络代理。
 
 ### 离线音质不如在线音色
 
@@ -487,7 +486,7 @@ SAPI 的声音来自 Windows 本机语音包。安装更多系统语音可以增
 
 ### 从旧 Edge TTS 插件迁移
 
-可以手动复制旧插件的在线地址、音色、语速和音调。VoyceTTS 使用新的 `PluginID` 和独立配置目录，不会覆盖旧插件，也不会自动迁移其设置。
+可以手动复制旧插件的在线地址、音色、语速、音量、音调和风格。VoyceTTS 使用新的 `PluginID` 和独立配置目录，不会覆盖旧插件，也不会自动迁移其设置。
 
 ### 安装包无法识别
 

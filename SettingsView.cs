@@ -8,10 +8,13 @@ internal sealed class SettingsView : UserControl, IDisposable
 {
     private readonly Main _main;
     private readonly ComboBox _mode = new();
+    private readonly ComboBox _endpointPreset = new();
     private readonly TextBox _baseUrl = new();
-    private readonly PasswordBox _apiKey = new();
+    private readonly TextBox _apiKey = new();
     private readonly TextBox _voice = new();
+    private readonly ComboBox _style = new();
     private readonly TextBox _speed = new();
+    private readonly TextBox _volume = new();
     private readonly TextBox _pitch = new();
     private readonly TextBox _timeout = new();
     private readonly CheckBox _fallback = new() { Content = "在线失败时自动使用 Windows SAPI" };
@@ -19,17 +22,33 @@ internal sealed class SettingsView : UserControl, IDisposable
     private readonly TextBox _sapiRate = new();
     private readonly TextBox _sapiVolume = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
+    private bool _syncingPreset;
 
     public SettingsView(Main main)
     {
         _main = main;
         var settings = main.CurrentSettings;
+
         _mode.ItemsSource = Enum.GetValues<TtsMode>();
         _mode.SelectedItem = settings.Mode;
+        _endpointPreset.ItemsSource = VoyceTtsProtocol.EndpointOptions;
+        _endpointPreset.DisplayMemberPath = nameof(VoyceEndpointOption.Label);
+        _endpointPreset.SelectedValuePath = nameof(VoyceEndpointOption.Value);
         _baseUrl.Text = settings.BaseUrl;
-        _apiKey.Password = settings.ApiKey;
+        var inferredPreset = VoyceTtsProtocol.GetPresetForUrl(settings.BaseUrl);
+        _endpointPreset.SelectedValue = inferredPreset == TtsEndpointPreset.Custom ? settings.EndpointPreset : inferredPreset;
+        _apiKey.Text = !string.IsNullOrWhiteSpace(settings.ApiKey)
+            ? settings.ApiKey
+            : _endpointPreset.SelectedValue is TtsEndpointPreset.Okraworks
+                ? VoyceTtsProtocol.DefaultApiKey
+                : string.Empty;
         _voice.Text = settings.Voice;
+        _style.ItemsSource = VoyceTtsProtocol.StyleOptions;
+        _style.DisplayMemberPath = nameof(VoyceStyleOption.Label);
+        _style.SelectedValuePath = nameof(VoyceStyleOption.Value);
+        _style.SelectedValue = string.IsNullOrWhiteSpace(settings.Style) ? VoyceTtsProtocol.DefaultStyle : settings.Style;
         _speed.Text = settings.Speed.ToString(CultureInfo.InvariantCulture);
+        _volume.Text = settings.Volume.ToString(CultureInfo.InvariantCulture);
         _pitch.Text = settings.Pitch.ToString(CultureInfo.InvariantCulture);
         _timeout.Text = settings.TimeoutSeconds.ToString(CultureInfo.InvariantCulture);
         _fallback.IsChecked = settings.FallbackToSapi;
@@ -41,10 +60,13 @@ internal sealed class SettingsView : UserControl, IDisposable
         var root = new StackPanel { Margin = new Thickness(16), MaxWidth = 620 };
         root.Children.Add(new TextBlock { Text = "VoyceTTS", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10) });
         AddField(root, "运行模式", _mode);
+        AddField(root, "服务预设", _endpointPreset);
         AddField(root, "在线地址", _baseUrl);
         AddField(root, "API Key", _apiKey);
         AddField(root, "在线音色", _voice);
+        AddField(root, "在线风格", _style);
         AddField(root, "在线语速 (0.5-2.0)", _speed);
+        AddField(root, "在线音量 (raw, 默认 0)", _volume);
         AddField(root, "在线音调 (-50-50)", _pitch);
         AddField(root, "超时秒数 (5-300)", _timeout);
         _fallback.Margin = new Thickness(150, 5, 0, 8);
@@ -60,7 +82,7 @@ internal sealed class SettingsView : UserControl, IDisposable
         root.Children.Add(buttons);
         root.Children.Add(new TextBlock
         {
-            Text = "默认 Okraworks 是第三方公共网关，可能限流、变更或停止服务。离线模式不会发送文本到网络。",
+            Text = "Wangwangit 使用网页端当前协议；Okraworks 保留原始查询串。URL 保持可编辑，选中预设会自动填入对应地址。",
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.72,
             Margin = new Thickness(0, 12, 0, 4)
@@ -95,11 +117,49 @@ internal sealed class SettingsView : UserControl, IDisposable
     private void HookAutoSave()
     {
         _mode.SelectionChanged += (_, _) => Persist();
+        _endpointPreset.SelectionChanged += (_, _) => ApplyPresetSelection();
         _sapiVoice.SelectionChanged += (_, _) => Persist();
+        _style.SelectionChanged += (_, _) => Persist();
         _fallback.Checked += (_, _) => Persist();
         _fallback.Unchecked += (_, _) => Persist();
-        foreach (var box in new[] { _baseUrl, _voice, _speed, _pitch, _timeout, _sapiRate, _sapiVolume }) box.LostFocus += (_, _) => Persist();
-        _apiKey.PasswordChanged += (_, _) => Persist();
+        foreach (var box in new[] { _baseUrl, _apiKey, _voice, _speed, _volume, _pitch, _timeout, _sapiRate, _sapiVolume }) box.LostFocus += (_, _) => Persist();
+        _baseUrl.TextChanged += (_, _) => SyncPresetFromUrl();
+    }
+
+    private void ApplyPresetSelection()
+    {
+        if (_syncingPreset) return;
+        _syncingPreset = true;
+        try
+        {
+            if (_endpointPreset.SelectedItem is VoyceEndpointOption option && option.Value != TtsEndpointPreset.Custom)
+            {
+                _baseUrl.Text = option.Url;
+                _apiKey.Text = option.ApiKey;
+            }
+        }
+        finally
+        {
+            _syncingPreset = false;
+        }
+        Persist();
+    }
+
+    private void SyncPresetFromUrl()
+    {
+        if (_syncingPreset) return;
+        _syncingPreset = true;
+        try
+        {
+            var preset = VoyceTtsProtocol.GetPresetForUrl(_baseUrl.Text);
+            _endpointPreset.SelectedValue = preset;
+            if (_endpointPreset.SelectedItem is VoyceEndpointOption option && preset != TtsEndpointPreset.Custom)
+                _apiKey.Text = option.ApiKey;
+        }
+        finally
+        {
+            _syncingPreset = false;
+        }
     }
 
     private void RefreshVoices()
@@ -131,10 +191,13 @@ internal sealed class SettingsView : UserControl, IDisposable
     {
         var settings = _main.CurrentSettings;
         settings.Mode = _mode.SelectedItem is TtsMode mode ? mode : TtsMode.Auto;
-        settings.BaseUrl = string.IsNullOrWhiteSpace(_baseUrl.Text) ? "https://tts.okraworks.cn" : _baseUrl.Text.Trim().TrimEnd('/');
-        settings.ApiKey = _apiKey.Password.Trim();
-        settings.Voice = string.IsNullOrWhiteSpace(_voice.Text) ? "zh-CN-XiaoxiaoNeural" : _voice.Text.Trim();
+        settings.EndpointPreset = _endpointPreset.SelectedValue is TtsEndpointPreset preset ? preset : TtsEndpointPreset.Custom;
+        settings.BaseUrl = string.IsNullOrWhiteSpace(_baseUrl.Text) ? VoyceTtsProtocol.GetPresetUrl(settings.EndpointPreset) : _baseUrl.Text.Trim();
+        settings.ApiKey = _apiKey.Text.Trim();
+        settings.Voice = string.IsNullOrWhiteSpace(_voice.Text) ? VoyceTtsProtocol.DefaultVoice : _voice.Text.Trim();
+        settings.Style = _style.SelectedValue as string ?? VoyceTtsProtocol.DefaultStyle;
         settings.Speed = ParseDouble(_speed.Text, 1, 0.5, 2);
+        settings.Volume = ParseRawDouble(_volume.Text, 0);
         settings.Pitch = ParseInt(_pitch.Text, 0, -50, 50);
         settings.TimeoutSeconds = ParseInt(_timeout.Text, 30, 5, 300);
         settings.FallbackToSapi = _fallback.IsChecked == true;
@@ -146,5 +209,6 @@ internal sealed class SettingsView : UserControl, IDisposable
 
     private static int ParseInt(string text, int fallback, int min, int max) => int.TryParse(text, out var value) ? Math.Clamp(value, min, max) : fallback;
     private static double ParseDouble(string text, double fallback, double min, double max) => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? Math.Clamp(value, min, max) : fallback;
+    private static double ParseRawDouble(string text, double fallback) => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : fallback;
     public void Dispose() => Persist();
 }
