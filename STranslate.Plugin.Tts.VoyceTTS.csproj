@@ -34,6 +34,12 @@
     <Compile Remove="VoyceTTS.Tests\**\*.cs" />
   </ItemGroup>
   <Target Name="CopySystemSpeech" AfterTargets="Build" BeforeTargets="PackageAsSpkg">
-    <Copy SourceFiles="$(PkgSystem_Speech)\runtimes\win\lib\net10.0\System.Speech.dll" DestinationFolder="$(OutputPath)" />
-  </Target>
+    <MakeDir Directories="$(OutputPath)runtimes\win\lib\net10.0;$(OutputPath)lib\net10.0" />
+
+    <Copy SourceFiles="$(PkgSystem_Speech)\runtimes\win\lib\net10.0\System.Speech.dll"
+          DestinationFolder="$(OutputPath)runtimes\win\lib\net10.0" />
+
+    <Copy SourceFiles="$(PkgSystem_Speech)\runtimes\win\lib\net10.0\System.Speech.dll"
+          DestinationFolder="$(OutputPath)lib\net10.0" />
+</Target>
 </Project>
